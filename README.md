@@ -1,1 +1,11 @@
-# roomifyU-final-project
+
+  # RoomifyU web application
+
+  This is a code bundle for RoomifyU web application. The original project is available at https://www.figma.com/design/gB20pK4v2X2nCq87NMrJkd/RoomifyU-web-application.
+
+  ## Running the code
+
+  Run `npm i` to install the dependencies.
+
+  Run `npm run dev` to start the development server.
+  
