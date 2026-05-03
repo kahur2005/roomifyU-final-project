@@ -41,8 +41,6 @@ export interface Booking {
   equipment: string[];
   notes?: string;
   isRecurring: boolean;
-  /** Microsoft Graph calendar event id after admin approval writes to Outlook */
-  graphEventId?: string;
   rejectReason?: string;
 }
 

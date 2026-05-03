@@ -362,16 +362,6 @@ export function ApprovalsPage() {
                     </div>
                   )}
 
-                  {selectedBooking.graphEventId !== undefined &&
-                    selectedBooking.graphEventId !== '' && (
-                      <div>
-                        <Label>Outlook / Graph event id</Label>
-                        <p className="text-xs font-mono text-muted-foreground break-all">
-                          {selectedBooking.graphEventId}
-                        </p>
-                      </div>
-                    )}
-
                   {selectedBooking.isRecurring && (
                     <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                       <p className="text-sm font-medium text-amber-700">

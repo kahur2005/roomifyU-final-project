@@ -1,54 +1,56 @@
 /**
- * RoomifyU backend: Users + LoginEvents + Sessions (spreadsheet-backed).
+ * RoomifyU backend: 10-table spreadsheet architecture.
  *
- * Deploy as Web App: Execute as you, access Anyone (later tighten).
- * Create a Google Spreadsheet, copy its ID into Script Properties key SPREADSHEET_ID.
- * Run initializeRoomifySpreadsheetOnce() once from the editor, then Deploy.
+ * Tables:
+ *   1. user_data - User registration (timestamp, email, password, name)
+ *   2. login_attempt - Login tracking (timestamp, email, status, role, name)
+ *   3. booking_room - Pending bookings (timestamp, name, room, date, time_start, time_end, purpose, num_attend, equipments, notes, status)
+ *   4. approved_booking - Approved bookings (timestamp, name, room, date, time_start, time_end)
+ *   5-10. Room availability (19f20, 19f01, 19f02, 19f03, 19f04, manuf_lab) - Each has time & status
+ *
+ * Deploy as Web App: Execute as you, access Anyone.
+ * Set Script Property SPREADSHEET_ID to your Sheet ID.
+ * Run initializeRoomifySpreadsheetOnce() once from the editor.
  */
 
+// Sheet names
 var SHEET_USERS = 'user_data';
 var SHEET_LOGIN_EVENTS = 'login_attempt';
 var SHEET_SESSIONS = 'Sessions';
-var SHEET_BOOKINGS = 'Bookings';
+var SHEET_BOOKING_ROOM = 'booking_room';
+var SHEET_APPROVED_BOOKING = 'approved_booking';
 
-/** When no Microsoft Graph reply yet; set Script Property GRAPH_APPROVE_STUB_EVENTS=1 for HCI demos (stores stub ids). */
-var PROP_GRAPH_APPROVE_STUB_EVENTS = 'GRAPH_APPROVE_STUB_EVENTS';
+// Room availability sheets
+var ROOM_SHEETS = ['19f20', '19f01', '19f02', '19f03', '19f04', 'manuf_lab'];
+var ROOM_SHEET_MAP = {
+  '19f20': '19f20',
+  '19f01': '19f01',
+  '19f02': '19f02',
+  '19f03': '19f03',
+  '19f04': '19f04',
+  'manuf_lab': 'manuf_lab',
+};
 
-/** Microsoft Graph (Script Properties): MS_GRAPH_TENANT_ID, MS_GRAPH_CLIENT_ID, MS_GRAPH_CLIENT_SECRET, and MS_GRAPH_REFRESH_TOKEN (delegated) OR omit refresh for client_credentials. Optional: GRAPH_ROOM_CALENDAR_MAP JSON {\"r1\":\"room@tenant.com\"}, GRAPH_DEFAULT_CALENDAR_USER. Gemini: GEMINI_API_KEY, optional GEMINI_MODEL (default gemini-2.0-flash). */
-var PROP_GRAPH_TENANT = 'MS_GRAPH_TENANT_ID';
-var PROP_GRAPH_CLIENT_ID = 'MS_GRAPH_CLIENT_ID';
-var PROP_GRAPH_CLIENT_SECRET = 'MS_GRAPH_CLIENT_SECRET';
-var PROP_GRAPH_REFRESH = 'MS_GRAPH_REFRESH_TOKEN';
-var PROP_GRAPH_ROOM_MAP = 'GRAPH_ROOM_CALENDAR_MAP';
-var PROP_GRAPH_DEFAULT_CAL_USER = 'GRAPH_DEFAULT_CALENDAR_USER';
-var PROP_GEMINI_KEY = 'GEMINI_API_KEY';
-var PROP_GEMINI_MODEL = 'GEMINI_MODEL';
+// Headers for each table
+var HEADERS_USERS = ['timestamp', 'email', 'password', 'name'];
+var HEADERS_LOGIN = ['timestamp', 'email', 'status', 'role', 'name'];
+var HEADERS_BOOKING_ROOM = ['timestamp', 'name', 'room', 'date', 'time_start', 'time_end', 'purpose', 'num_attend', 'equipments', 'notes', 'status'];
+var HEADERS_APPROVED_BOOKING = ['timestamp', 'name', 'room', 'date', 'time_start', 'time_end'];
+var HEADERS_ROOM_AVAILABILITY = ['time', 'status'];
 
-var BOOKING_HEADERS = [
-  'id',
-  'userId',
-  'userName',
-  'roomId',
-  'roomName',
-  'building',
-  'date',
-  'startTime',
-  'endTime',
-  'purpose',
-  'attendees',
-  'status',
-  'equipmentJson',
-  'notes',
-  'isRecurring',
-  'graphEventId',
-  'rejectReason',
-];
-var BOOKING_COL = BOOKING_HEADERS.length;
+// Time slots: 8:00, 8:30, 9:00, ..., 18:00
+var TIME_SLOTS = [];
+(function() {
+  for (var h = 8; h <= 18; h++) {
+    TIME_SLOTS.push(('0' + h).slice(-2) + ':00');
+    if (h < 18) TIME_SLOTS.push(('0' + h).slice(-2) + ':30');
+  }
+})();
 
 var PROP_SPREADSHEET_ID = 'SPREADSHEET_ID';
 var PROP_AUTH_SALT = 'AUTH_PASSWORD_SALT';
 
-var SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — shorten for tighter security when needed.
+var SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function jsonOut_(obj) {
   var payload = ContentService.createTextOutput(JSON.stringify(obj));
@@ -102,8 +104,8 @@ function dispatch_(body, e) {
   if (action === 'bookingCreate') return handleBookingCreate_(body);
   if (action === 'bookingApprove') return handleBookingApprove_(body);
   if (action === 'bookingReject') return handleBookingReject_(body);
-  if (action === 'calendarAvailability') return handleCalendarAvailability_(body);
-  if (action === 'apiChat') return handleApiChat_(body);
+  if (action === 'getRoomAvailability') return handleGetRoomAvailability_(body);
+  if (action === 'updateRoomAvailability') return handleUpdateRoomAvailability_(body);
   return envelope_(false, 'BAD_ACTION');
 }
 
@@ -153,21 +155,32 @@ function uaFrom_(body) {
 }
 
 /**
- * Manual run from editor once: ensures tabs + demo users matching the HCI React demo fixtures.
+ * Manual run from editor once: ensures all 10 tabs are initialized.
  */
 function initializeRoomifySpreadsheetOnce() {
   ensureAuthSalt_();
   var id = PropertiesService.getScriptProperties().getProperty(PROP_SPREADSHEET_ID);
   if (!id) throw new Error('Set Script Property SPREADSHEET_ID to your Sheet ID first.');
   var ss = SpreadsheetApp.openById(id);
-  upsertSheetWithHeaders_(ss, SHEET_USERS, ['timestamp', 'email', 'password', 'role', 'name']);
-  upsertSheetWithHeaders_(ss, SHEET_LOGIN_EVENTS, ['timestamp', 'email', 'status']);
+  
+  // Create main tables
+  upsertSheetWithHeaders_(ss, SHEET_USERS, HEADERS_USERS);
+  upsertSheetWithHeaders_(ss, SHEET_LOGIN_EVENTS, HEADERS_LOGIN);
   upsertSheetWithHeaders_(ss, SHEET_SESSIONS, ['token', 'userId', 'expiresAt', 'createdAt']);
-  upsertSheetWithHeaders_(ss, SHEET_BOOKINGS, BOOKING_HEADERS);
+  upsertSheetWithHeaders_(ss, SHEET_BOOKING_ROOM, HEADERS_BOOKING_ROOM);
+  upsertSheetWithHeaders_(ss, SHEET_APPROVED_BOOKING, HEADERS_APPROVED_BOOKING);
+  
+  // Create room availability tables
+  for (var i = 0; i < ROOM_SHEETS.length; i++) {
+    upsertSheetWithHeaders_(ss, ROOM_SHEETS[i], HEADERS_ROOM_AVAILABILITY);
+    seedRoomAvailabilitySheet_(ss.getSheetByName(ROOM_SHEETS[i]));
+  }
+  
+  // Seed demo users
   seedDemoUsers_(ss.getSheetByName(SHEET_USERS));
-  seedDemoBookings_(ss.getSheetByName(SHEET_BOOKINGS));
+  
   SpreadsheetApp.flush();
-  return 'OK: Users + LoginEvents + Sessions + Bookings tabs ready.';
+  return 'OK: All 10 tables initialized (user_data, login_attempt, Sessions, booking_room, approved_booking, 19f20, 19f01, 19f02, 19f03, 19f04, manuf_lab).';
 }
 
 function upsertSheetWithHeaders_(ss, name, headers) {
@@ -178,14 +191,24 @@ function upsertSheetWithHeaders_(ss, name, headers) {
 }
 
 function seedDemoUsers_(usersSheet) {
-  var last = Math.max(usersSheet.getLastRow(), 2);
   if (usersSheet.getLastRow() > 1) return;
   var demo = [
-    [new Date(), 'arry@university.edu', hashPassword_('12345678'), 'admin', 'Arry'],
-    [new Date(), 'jesse@university.edu', hashPassword_('12345678'), 'student', 'Jesse Pinkman'],
-    [new Date(), 'panji@university.edu', hashPassword_('12345678'), 'lecturer', 'Prof. Panji'],
+    [new Date(), 'arry@university.edu', hashPassword_('12345678'), 'Arry Admin'],
+    [new Date(), 'jesse@university.edu', hashPassword_('12345678'), 'Jesse Pinkman'],
+    [new Date(), 'panji@university.edu', hashPassword_('12345678'), 'Prof. Panji'],
   ];
   usersSheet.getRange(2, 1, demo.length, demo[0].length).setValues(demo);
+}
+
+function seedRoomAvailabilitySheet_(sheet) {
+  if (sheet.getLastRow() > 1) return;
+  var rows = [];
+  for (var i = 0; i < TIME_SLOTS.length; i++) {
+    rows.push([TIME_SLOTS[i], 'available']);
+  }
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  }
 }
 
 function findUserByEmail_(email) {
@@ -196,7 +219,7 @@ function findUserByEmail_(email) {
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
     if (!row[1]) continue;
-    if (normalizeEmail_(row[1]) === norm) return userRowParse_(row);
+    if (normalizeEmail_(row[1]) === norm) return userRowParse_(row, r + 1);
   }
   return null;
 }
@@ -205,39 +228,42 @@ function normalizeEmail_(e) {
   return String(e || '').trim().toLowerCase();
 }
 
-function userRowParse_(row) {
+function userRowParse_(row, rowNum) {
+  // row: [timestamp, email, password, name]
   return {
     id: String(row[1]), // email as id
-    name: String(row[4] || row[1].split('@')[0]), // name from sheet or email prefix
+    name: String(row[3] || row[1].split('@')[0]), // name or email prefix
     email: String(row[1]),
     passwordHash: String(row[2]),
-    role: String(row[3] || 'student'), // role from sheet or default
+    role: 'student', // default; actual role determined from login_attempt or context
     department: 'General',
+    rowNum: rowNum || 0,
   };
 }
 
-function publicUser_(u) {
+function publicUser_(u, role) {
   return {
     id: u.id,
     name: u.name,
     email: u.email,
-    role: u.role,
+    role: role || u.role || 'student',
     department: u.department,
   };
 }
 
-function appendLoginEvent_(email, status) {
+function appendLoginEvent_(email, status, role, name) {
   var sh = sheet_(SHEET_LOGIN_EVENTS);
-  sh.appendRow([new Date(), email, status]);
+  sh.appendRow([new Date(), email, status, role || 'student', name || '']);
 }
 
 function handleLogin_(body, e) {
   if (!getSs_()) return envelope_(false, 'BACKEND_DISABLED');
   var email = body.email || '';
   var password = body.password || '';
+  var loginRole = String(body.role || 'student').trim().toLowerCase();
   var ua = uaFrom_(body);
   function failLogin(code) {
-    appendLoginEvent_(normalizeEmail_(email), 'failed');
+    appendLoginEvent_(normalizeEmail_(email), 'failed', loginRole, '');
     return envelope_(false, code);
   }
   if (!password) return failLogin('BAD_CREDENTIALS');
@@ -248,10 +274,10 @@ function handleLogin_(body, e) {
   var token = Utilities.getUuid() + Utilities.getUuid();
   var expires = new Date(Date.now() + SESSION_MS);
   upsertSession_(token, row.id, expires);
-  appendLoginEvent_(row.email, 'success');
+  appendLoginEvent_(row.email, 'success', loginRole, row.name);
   return envelope_(true, null, {
     token: token,
-    user: publicUser_(row),
+    user: publicUser_(row, loginRole),
     expiresAt: expires.toISOString(),
   });
 }
@@ -266,9 +292,8 @@ function handleUserRegister_(body) {
   var existing = findUserByEmail_(email);
   if (existing) return envelope_(false, 'EMAIL_EXISTS');
   var hashed = hashPassword_(password);
-  var role = 'student'; // default role
   var sh = sheet_(SHEET_USERS);
-  sh.appendRow([new Date(), email, hashed, role, name]);
+  sh.appendRow([new Date(), email, hashed, name]);
   return envelope_(true, null, { message: 'User registered successfully' });
 }
 
@@ -319,7 +344,9 @@ function findUserById_(id) {
   var data = sh.getDataRange().getValues();
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
-    if (String(row[0]) === String(id)) return userRowParse_(row);
+    if (normalizeEmail_(String(row[1])) === normalizeEmail_(String(id))) {
+      return userRowParse_(row, r + 1);
+    }
   }
   return null;
 }
@@ -331,68 +358,15 @@ function handleSession_(body) {
   if (!sess) return envelope_(false, 'INVALID_SESSION');
   var user = findUserById_(sess.userId);
   if (!user) return envelope_(false, 'USER_NOT_FOUND');
+  var role = getUserRole_(user.email);
   return envelope_(true, null, {
     token: token,
-    user: publicUser_(user),
+    user: publicUser_(user, role),
     expiresAt: new Date(sess.expiresAtMs).toISOString(),
   });
 }
 
-// --- Bookings (Sheets) -------------------------------------------------
-
-function bookingsSheetSafe_() {
-  try {
-    return sheet_(SHEET_BOOKINGS);
-  } catch (e) {
-    return null;
-  }
-}
-
-function seedDemoBookings_(bookSheet) {
-  if (!bookSheet) return;
-  if (bookSheet.getLastRow() > 1) return;
-  var demo = [
-    [
-      'seed-b-pending',
-      '2',
-      'Jesse Pinkman',
-      'r2',
-      'Room 19F-01',
-      'Lavenue Building, 19th Floor',
-      '2026-04-03',
-      '14:00',
-      '16:00',
-      'Workshop Presentation',
-      '35',
-      'pending',
-      '["Projector","Microphone"]',
-      'Student workshop on presentation skills',
-      'FALSE',
-      '',
-      '',
-    ],
-    [
-      'seed-b-confirmed',
-      '2',
-      'Jesse Pinkman',
-      'r1',
-      'Microteaching Lab 19F-20',
-      'Lavenue Building, 19th Floor',
-      '2026-04-02',
-      '10:00',
-      '12:00',
-      'Study Group Session',
-      '15',
-      'confirmed',
-      '["Projector"]',
-      'Working on group project',
-      'FALSE',
-      '',
-      '',
-    ],
-  ];
-  bookSheet.getRange(2, 1, 2 + demo.length - 1, BOOKING_COL).setValues(demo);
-}
+// --- Bookings: New table-based functions -------
 
 function requireSessionUser_(body) {
   if (!getSs_()) return { err: envelope_(false, 'BACKEND_DISABLED') };
@@ -404,485 +378,249 @@ function requireSessionUser_(body) {
   return { user: user };
 }
 
-function parseEquipmentJson_(cell) {
-  try {
-    var a = JSON.parse(String(cell || '[]'));
-    return Array.isArray(a) ? a : [];
-  } catch (ignored) {
-    return [];
-  }
-}
-
-function normalizeBookingStatus_(s) {
-  return String(s || '').trim().toLowerCase();
-}
-
-function bookingRowToClient_(row) {
-  var notes = row[13] != null ? String(row[13]) : '';
-  return {
-    id: String(row[0]),
-    userId: String(row[1]),
-    userName: String(row[2]),
-    roomId: String(row[3]),
-    roomName: String(row[4]),
-    building: String(row[5]),
-    date: String(row[6]),
-    startTime: String(row[7]),
-    endTime: String(row[8]),
-    purpose: String(row[9]),
-    attendees: Number(row[10]) || 0,
-    status: normalizeBookingStatus_(row[11]),
-    equipment: parseEquipmentJson_(row[12]),
-    notes: notes,
-    isRecurring: String(row[14]).toUpperCase() === 'TRUE',
-    graphEventId: row[15] != null ? String(row[15]) : '',
-    rejectReason: row[16] != null ? String(row[16]) : '',
-  };
-}
-
-function findBookingDataRow_(id) {
-  var sh = bookingsSheetSafe_();
-  if (!sh) return null;
+/** Get user role from latest login attempt */
+function getUserRole_(email) {
+  var sh = sheet_(SHEET_LOGIN_EVENTS);
   var data = sh.getDataRange().getValues();
-  var want = String(id);
-  for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0]) === want) return { sheet: sh, rowIndex: r + 1, row: data[r] };
-  }
-  return null;
-}
-
-function graphStubApproveId_() {
-  var stub = PropertiesService.getScriptProperties().getProperty(PROP_GRAPH_APPROVE_STUB_EVENTS);
-  if (stub === '1' || stub === 'true') return 'stub-' + Utilities.getUuid().replace(/-/g, '');
-  return '';
-}
-
-function graphAuthConfigured_() {
-  var p = PropertiesService.getScriptProperties();
-  if (!p.getProperty(PROP_GRAPH_TENANT) || !p.getProperty(PROP_GRAPH_CLIENT_ID)) return false;
-  var sec = p.getProperty(PROP_GRAPH_CLIENT_SECRET);
-  return !!(sec || p.getProperty(PROP_GRAPH_REFRESH));
-}
-
-/** @returns UPN or id string, or '' */
-function calendarUserForRoom_(roomId) {
-  var rid = String(roomId || '').trim();
-  var p = PropertiesService.getScriptProperties();
-  var raw = p.getProperty(PROP_GRAPH_ROOM_MAP);
-  if (raw) {
-    try {
-      var m = JSON.parse(raw);
-      if (m && m[rid]) return String(m[rid]).trim();
-    } catch (ignored) {}
-  }
-  var def = p.getProperty(PROP_GRAPH_DEFAULT_CAL_USER);
-  return def ? String(def).trim() : '';
-}
-
-function getGraphAccessToken_() {
-  var p = PropertiesService.getScriptProperties();
-  var tenant = p.getProperty(PROP_GRAPH_TENANT);
-  var clientId = p.getProperty(PROP_GRAPH_CLIENT_ID);
-  var secret = p.getProperty(PROP_GRAPH_CLIENT_SECRET);
-  var refresh = p.getProperty(PROP_GRAPH_REFRESH);
-  if (!tenant || !clientId || !secret) throw new Error('Graph OAuth properties incomplete (tenant, client id, secret).');
-  var url = 'https://login.microsoftonline.com/' + encodeURIComponent(tenant) + '/oauth2/v2.0/token';
-  var payload;
-  if (refresh) {
-    payload =
-      'client_id=' +
-      encodeURIComponent(clientId) +
-      '&grant_type=refresh_token&refresh_token=' +
-      encodeURIComponent(refresh) +
-      '&client_secret=' +
-      encodeURIComponent(secret);
-  } else {
-    payload =
-      'client_id=' +
-      encodeURIComponent(clientId) +
-      '&scope=' +
-      encodeURIComponent('https://graph.microsoft.com/.default') +
-      '&grant_type=client_credentials&client_secret=' +
-      encodeURIComponent(secret);
-  }
-  var res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/x-www-form-urlencoded',
-    muteHttpExceptions: true,
-    payload: payload,
-  });
-  var code = res.getResponseCode();
-  var text = res.getContentText();
-  if (code < 200 || code >= 300) throw new Error('Token HTTP ' + code + ': ' + text.slice(0, 500));
-  var json = JSON.parse(text);
-  if (json.refresh_token) p.setProperty(PROP_GRAPH_REFRESH, json.refresh_token);
-  if (!json.access_token) throw new Error('No access_token in token response');
-  return String(json.access_token);
-}
-
-function graphRequest_(method, graphPath, bodyObj) {
-  var token = getGraphAccessToken_();
-  var url = 'https://graph.microsoft.com/v1.0/' + graphPath.replace(/^\//, '');
-  var opt = {
-    method: method,
-    muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + token },
-  };
-  if (bodyObj !== undefined && bodyObj !== null) {
-    opt.contentType = 'application/json';
-    opt.payload = JSON.stringify(bodyObj);
-  }
-  var res = UrlFetchApp.fetch(url, opt);
-  var code = res.getResponseCode();
-  var text = res.getContentText();
-  if (code < 200 || code >= 300) throw new Error('Graph ' + method + ' ' + graphPath + ' → ' + code + ': ' + text.slice(0, 600));
-  if (!text || String(text).trim() === '' || method === 'delete') return null;
-  try {
-    return JSON.parse(text);
-  } catch (parseErr) {
-    return null;
-  }
-}
-
-function isoLocalDayBounds_(dateStr) {
-  var tz = Session.getScriptTimeZone();
-  var dayStart = Utilities.parseDate(String(dateStr) + ' 00:00:00', tz, 'yyyy-MM-dd HH:mm');
-  var dayEnd = Utilities.parseDate(String(dateStr) + ' 23:59:59', tz, 'yyyy-MM-dd HH:mm:ss');
-  return { startIso: dayStart.toISOString(), endIso: dayEnd.toISOString(), tz: tz };
-}
-
-/** Half-hour slots 08:00–18:30 (same grid as React generateTimeSlots). */
-function slotTimesForDay_() {
-  var out = [];
-  for (var h = 8; h <= 18; h++) {
-    out.push((h < 10 ? '0' : '') + h + ':00');
-    if (h < 18) out.push((h < 10 ? '0' : '') + h + ':30');
-  }
-  return out;
-}
-
-function parseHHmmMs_(dateStr, hhmm, tz) {
-  return Utilities.parseDate(String(dateStr) + ' ' + String(hhmm), tz, 'yyyy-MM-dd HH:mm').getTime();
-}
-
-/** @returns overlap with [slotStartMs, slotEndMs) */
-function rangesOverlap_(aStart, aEnd, bStart, bEnd) {
-  return aStart < bEnd && aEnd > bStart;
-}
-
-function graphFetchCalendarBusyRanges_(calendarUser, startIso, endIso) {
-  var encUser = encodeURIComponent(calendarUser);
-  var q =
-    'users/' +
-    encUser +
-    '/calendar/calendarView?startDateTime=' +
-    encodeURIComponent(startIso) +
-    '&endDateTime=' +
-    encodeURIComponent(endIso);
-  var page = graphRequest_('get', q, null);
-  var ranges = [];
-  var list = (page && page.value) || [];
-  for (var i = 0; i < list.length; i++) {
-    var ev = list[i];
-    if (ev.isCancelled) continue;
-    var st = ev.start && (ev.start.dateTime || ev.start.DateTime);
-    var en = ev.end && (ev.end.dateTime || ev.end.DateTime);
-    if (!st || !en) continue;
-    try {
-      var sMs = new Date(st).getTime();
-      var eMs = new Date(en).getTime();
-      if (!isFinite(sMs) || !isFinite(eMs)) continue;
-      ranges.push({ start: sMs, end: eMs });
-    } catch (ignored) {}
-  }
-  return ranges;
-}
-
-function bookingsOverlappingRoomDate_(roomId, dateStr) {
-  var sh = bookingsSheetSafe_();
-  if (!sh) return [];
-  var data = sh.getDataRange().getValues();
-  var out = [];
-  var wantRoom = String(roomId);
-  var wantDate = String(dateStr);
-  for (var r = 1; r < data.length; r++) {
-    var row = data[r];
-    if (!row[0]) continue;
-    var st = normalizeBookingStatus_(row[11]);
-    if (st !== 'pending' && st !== 'confirmed') continue;
-    if (String(row[3]) !== wantRoom) continue;
-    if (String(row[6]) !== wantDate) continue;
-    out.push({
-      startTime: String(row[7]),
-      endTime: String(row[8]),
-      status: st,
-      userId: String(row[1]),
-    });
-  }
-  return out;
-}
-
-function handleCalendarAvailability_(body) {
-  var auth = requireSessionUser_(body);
-  if (auth.err) return auth.err;
-  var roomId = body && body.roomId != null ? String(body.roomId) : '';
-  var dateStr = body && body.date != null ? String(body.date) : '';
-  if (!roomId || !dateStr) return envelope_(false, 'BAD_REQUEST');
-  var tz = Session.getScriptTimeZone();
-  var times = slotTimesForDay_();
-  var sheetOverlap = bookingsOverlappingRoomDate_(roomId, dateStr);
-  var graphRanges = [];
-  var graphEnabled = false;
-  var graphReadError = '';
-  var calUser = calendarUserForRoom_(roomId);
-  if (graphAuthConfigured_() && calUser) {
-    try {
-      var b = isoLocalDayBounds_(dateStr);
-      graphRanges = graphFetchCalendarBusyRanges_(calUser, b.startIso, b.endIso);
-      graphEnabled = true;
-    } catch (e) {
-      graphReadError = String(e && e.message ? e.message : e);
+  var norm = normalizeEmail_(email);
+  for (var r = data.length - 1; r >= 1; r--) {
+    if (normalizeEmail_(String(data[r][1])) === norm) {
+      return String(data[r][3] || 'student');
     }
-  } else if (graphAuthConfigured_() && !calUser) {
-    graphReadError = 'Calendar mailbox not mapped for this room (GRAPH_ROOM_CALENDAR_MAP / GRAPH_DEFAULT_CALENDAR_USER).';
   }
-  var slots = times.map(function (time) {
-    var slotStart = parseHHmmMs_(dateStr, time, tz);
-    var slotEnd = slotStart + 30 * 60 * 1000;
-    var gBusy = graphRanges.some(function (gr) {
-      return rangesOverlap_(gr.start, gr.end, slotStart, slotEnd);
-    });
-    var sheetBooked = false;
-    var sheetPending = false;
-    for (var i = 0; i < sheetOverlap.length; i++) {
-      var bo = sheetOverlap[i];
-      var bStart = parseHHmmMs_(dateStr, bo.startTime, tz);
-      var bEnd = parseHHmmMs_(dateStr, bo.endTime, tz);
-      if (!rangesOverlap_(bStart, bEnd, slotStart, slotEnd)) continue;
-      if (bo.status === 'pending') sheetPending = true;
-      else sheetBooked = true;
-    }
-    var status = 'available';
-    if (gBusy || sheetBooked) status = 'booked';
-    else if (sheetPending) status = 'pending';
-    return { time: time, status: status };
-  });
-  var pay = { slots: slots, graphEnabled: graphEnabled };
-  if (graphReadError) pay.graphReadError = graphReadError;
-  return envelope_(true, null, pay);
+  return 'student';
 }
 
-function buildGraphEventPayload_(row) {
-  var tz = Session.getScriptTimeZone();
-  var dateStr = String(row[6]);
-  var st = String(row[7]);
-  var en = String(row[8]);
-  var subject = 'RoomifyU: ' + String(row[4]) + ' — ' + String(row[9]);
-  var equip = '';
-  try {
-    equip = JSON.parse(String(row[12] || '[]'));
-    if (Array.isArray(equip)) equip = equip.join(', ');
-    else equip = '';
-  } catch (e) {
-    equip = '';
-  }
-  var notes = row[13] != null ? String(row[13]) : '';
-  var bodyText =
-    'Requested by: ' +
-    String(row[2]) +
-    '\nBuilding: ' +
-    String(row[5]) +
-    '\nAttendees: ' +
-    String(row[10]) +
-    (equip ? '\nEquipment: ' + equip : '') +
-    (notes ? '\nNotes: ' + notes : '');
-  return {
-    subject: subject.slice(0, 250),
-    body: { contentType: 'text', content: bodyText.slice(0, 8000) },
-    start: { dateTime: dateStr + 'T' + st + ':00', timeZone: tz },
-    end: { dateTime: dateStr + 'T' + en + ':00', timeZone: tz },
-    categories: ['RoomifyU'],
-    isReminderOn: true,
-    reminderMinutesBeforeStart: 60,
-  };
-}
-
-/**
- * Create or PATCH Graph calendar event for a booking row. existingEventId: reuse for idempotent update.
- */
-function graphUpsertBookingEvent_(calendarUser, row, existingEventId) {
-  var enc = encodeURIComponent(calendarUser);
-  var payload = buildGraphEventPayload_(row);
-  if (existingEventId && String(existingEventId).trim()) {
-    var eid = encodeURIComponent(String(existingEventId).trim());
-    var updated = graphRequest_('patch', 'users/' + enc + '/events/' + eid, payload);
-    return updated && updated.id ? String(updated.id) : String(existingEventId).trim();
-  }
-  var created = graphRequest_('post', 'users/' + enc + '/events', payload);
-  if (!created || !created.id) throw new Error('Graph create event missing id');
-  return String(created.id);
-}
-
-function handleApiChat_(body) {
-  var auth = requireSessionUser_(body);
-  if (auth.err) return auth.err;
-  var msg = body && body.message != null ? String(body.message).trim() : '';
-  if (!msg) return envelope_(false, 'BAD_REQUEST');
-  if (msg.length > 12000) return envelope_(false, 'BAD_REQUEST');
-  var p = PropertiesService.getScriptProperties();
-  var key = p.getProperty(PROP_GEMINI_KEY);
-  if (!key) return envelope_(false, 'GEMINI_DISABLED');
-  var model = p.getProperty(PROP_GEMINI_MODEL) || 'gemini-2.0-flash';
-  var url =
-    'https://generativelanguage.googleapis.com/v1beta/models/' +
-    encodeURIComponent(model) +
-    ':generateContent?key=' +
-    encodeURIComponent(key);
-  var safeContext = '';
-  if (body && body.contextSnippet) safeContext = String(body.contextSnippet).trim().slice(0, 2000);
-  var fullUser =
-    msg + (safeContext ? '\n\n(Context — room/booking helpers only)\n' + safeContext : '');
-  var res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    muteHttpExceptions: true,
-    payload: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: fullUser }] }],
-      generationConfig: { maxOutputTokens: 512, temperature: 0.4 },
-    }),
-  });
-  var code = res.getResponseCode();
-  var text = res.getContentText();
-  if (code < 200 || code >= 300) return envelope_(false, 'GEMINI_HTTP', { message: text.slice(0, 500) });
-  var json = JSON.parse(text);
-  var outText = '';
-  try {
-    outText =
-      json.candidates[0].content.parts.map(function (pt) {
-        return pt.text || '';
-      }).join('');
-  } catch (e) {
-    outText = '';
-  }
-  return envelope_(true, null, { reply: outText || '(No reply text)' });
-}
-
-function handleBookingsList_(body) {
-  var auth = requireSessionUser_(body);
-  if (auth.err) return auth.err;
-  var sh = bookingsSheetSafe_();
-  if (!sh) return envelope_(false, 'BOOKINGS_DISABLED');
-  var data = sh.getDataRange().getValues();
-  var list = [];
-  for (var r = 1; r < data.length; r++) {
-    var row = data[r];
-    if (!row || !row[0]) continue;
-    var b = bookingRowToClient_(row);
-    if (auth.user.role === 'admin') {
-      list.push(b);
-      continue;
-    }
-    if (b.userId === auth.user.id) list.push(b);
-  }
-  return envelope_(true, null, { bookings: list });
-}
-
+/** Add booking to booking_room table */
 function handleBookingCreate_(body) {
   var auth = requireSessionUser_(body);
   if (auth.err) return auth.err;
-  var sh = bookingsSheetSafe_();
-  if (!sh) return envelope_(false, 'BOOKINGS_DISABLED');
-  var uid = auth.user.id;
-  var equipment = Array.isArray(body.equipment) ? body.equipment : [];
-  var id = Utilities.getUuid().replace(/-/g, '');
-  var userName =
-    auth.user.name ||
-    auth.user.email ||
-    uid;
-  var row = [
-    id,
-    uid,
-    userName,
-    String(body.roomId || ''),
-    String(body.roomName || ''),
-    String(body.building || ''),
-    String(body.date || ''),
-    String(body.startTime || ''),
-    String(body.endTime || ''),
-    String(body.purpose || ''),
-    Number(body.attendees) || 0,
-    'pending',
-    JSON.stringify(equipment),
-    String(body.notes != null ? body.notes : ''),
-    body.isRecurring ? 'TRUE' : 'FALSE',
-    '',
-    '',
-  ];
-  sh.appendRow(row);
-  var created = bookingRowToClient_(row);
-  return envelope_(true, null, { booking: created });
+  
+  var sh = sheet_(SHEET_BOOKING_ROOM);
+  var timestamp = new Date();
+  var name = body.name || auth.user.name || auth.user.email;
+  var room = String(body.room || '');
+  var date = String(body.date || '');
+  var time_start = String(body.time_start || '');
+  var time_end = String(body.time_end || '');
+  var purpose = String(body.purpose || '');
+  var num_attend = Number(body.num_attend) || 0;
+  var equipments = body.equipments ? (Array.isArray(body.equipments) ? body.equipments.join(',') : String(body.equipments)) : '';
+  var notes = String(body.notes || '');
+  var status = 'pending';
+  
+  sh.appendRow([timestamp, name, room, date, time_start, time_end, purpose, num_attend, equipments, notes, status]);
+  var rowNum = sh.getLastRow();
+  return envelope_(true, null, {
+    booking: {
+      id: String(rowNum),
+      rowNum: rowNum,
+      timestamp: timestamp.toISOString(),
+      name: name,
+      room: room,
+      roomName: body.roomName || room,
+      date: date,
+      time_start: time_start,
+      time_end: time_end,
+      purpose: purpose,
+      num_attend: num_attend,
+      equipments: equipments,
+      notes: notes,
+      status: status,
+    }
+  });
 }
 
+/** Get all bookings for user or admin */
+function handleBookingsList_(body) {
+  var auth = requireSessionUser_(body);
+  if (auth.err) return auth.err;
+  
+  var role = getUserRole_(auth.user.email);
+  var sh = sheet_(SHEET_BOOKING_ROOM);
+  var data = sh.getDataRange().getValues();
+  var list = [];
+  
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    if (!row || !row[0]) continue;
+    
+    var booking = {
+      id: String(r + 1),
+      rowNum: r + 1,
+      timestamp: row[0] ? new Date(row[0]).toISOString() : '',
+      name: String(row[1] || ''),
+      room: String(row[2] || ''),
+      roomName: String(row[2] || ''),
+      date: String(row[3] || ''),
+      time_start: String(row[4] || ''),
+      time_end: String(row[5] || ''),
+      purpose: String(row[6] || ''),
+      num_attend: Number(row[7]) || 0,
+      equipments: String(row[8] || ''),
+      notes: String(row[9] || ''),
+      status: String(row[10] || 'pending'),
+    };
+    
+    if (role === 'admin') {
+      list.push(booking);
+    } else if (booking.name === auth.user.name || booking.name === auth.user.email) {
+      list.push(booking);
+    }
+  }
+  
+  return envelope_(true, null, { bookings: list });
+}
+
+/** Approve a booking: update booking_room status and add to approved_booking */
 function handleBookingApprove_(body) {
   var auth = requireSessionUser_(body);
   if (auth.err) return auth.err;
-  if (auth.user.role !== 'admin') return envelope_(false, 'FORBIDDEN');
-  var bid = body && body.bookingId ? String(body.bookingId) : '';
-  if (!bid) return envelope_(false, 'BAD_REQUEST');
-  var found = findBookingDataRow_(bid);
-  if (!found) return envelope_(false, 'NOT_FOUND');
-  var norm = normalizeBookingStatus_(found.row[11]);
-  if (norm !== 'pending') return envelope_(false, 'BAD_BOOKING_STATE');
-
-  var roomId = String(found.row[3]);
-  var existingGid = found.row[15] != null && String(found.row[15]).trim() ? String(found.row[15]).trim() : '';
-
-  var props = PropertiesService.getScriptProperties();
-  var useStub = props.getProperty(PROP_GRAPH_APPROVE_STUB_EVENTS) === '1' || props.getProperty(PROP_GRAPH_APPROVE_STUB_EVENTS) === 'true';
-
-  var gid = '';
-  if (useStub) {
-    gid = graphStubApproveId_();
-  } else if (graphAuthConfigured_()) {
-    var calUser = calendarUserForRoom_(roomId);
-    if (!calUser) {
-      return envelope_(false, 'GRAPH_CALENDAR_NOT_MAPPED', {
-        message: 'Set Script Property GRAPH_ROOM_CALENDAR_MAP or GRAPH_DEFAULT_CALENDAR_USER.',
-      });
-    }
-    try {
-      gid = graphUpsertBookingEvent_(calUser, found.row, existingGid);
-    } catch (e) {
-      return envelope_(false, 'GRAPH_WRITE_FAILED', { message: String(e && e.message ? e.message : e) });
-    }
-  }
-
-  var next = found.row.slice(0);
-  next[11] = 'confirmed';
-  next[15] = gid;
-  next[16] = '';
-  found.sheet.getRange(found.rowIndex, 1, found.rowIndex, BOOKING_COL).setValues([next]);
-  var updated = bookingRowToClient_(next);
-  return envelope_(true, null, { booking: updated, graphEventId: gid });
+  
+  var role = getUserRole_(auth.user.email);
+  if (role !== 'admin') return envelope_(false, 'FORBIDDEN');
+  
+  var rowNum = body && body.rowNum ? Number(body.rowNum) : 0;
+  if (!rowNum || rowNum < 2) return envelope_(false, 'BAD_REQUEST');
+  
+  var sh = sheet_(SHEET_BOOKING_ROOM);
+  var data = sh.getDataRange().getValues();
+  
+  if (rowNum > data.length) return envelope_(false, 'NOT_FOUND');
+  
+  var bookingRow = data[rowNum - 1];
+  if (!bookingRow || !bookingRow[0]) return envelope_(false, 'NOT_FOUND');
+  
+  var status = String(bookingRow[10] || 'pending').trim().toLowerCase();
+  if (status !== 'pending') return envelope_(false, 'BAD_BOOKING_STATE');
+  
+  // Update status in booking_room
+  var newStatus = 'confirmed';
+  bookingRow[10] = newStatus;
+  sh.getRange(rowNum, 1, 1, bookingRow.length).setValues([bookingRow]);
+  
+  // Add to approved_booking
+  var approvedSh = sheet_(SHEET_APPROVED_BOOKING);
+  approvedSh.appendRow([new Date(), bookingRow[1], bookingRow[2], bookingRow[3], bookingRow[4], bookingRow[5]]);
+  
+  var updatedBooking = {
+    id: String(rowNum),
+    rowNum: rowNum,
+    timestamp: bookingRow[0] ? new Date(bookingRow[0]).toISOString() : '',
+    name: String(bookingRow[1] || ''),
+    room: String(bookingRow[2] || ''),
+    roomName: String(bookingRow[2] || ''),
+    date: String(bookingRow[3] || ''),
+    time_start: String(bookingRow[4] || ''),
+    time_end: String(bookingRow[5] || ''),
+    purpose: String(bookingRow[6] || ''),
+    num_attend: Number(bookingRow[7]) || 0,
+    equipments: String(bookingRow[8] || ''),
+    notes: String(bookingRow[9] || ''),
+    status: newStatus,
+  };
+  
+  return envelope_(true, null, { success: true, message: 'Booking approved', booking: updatedBooking });
 }
 
+/** Reject a booking: update status to rejected */
 function handleBookingReject_(body) {
   var auth = requireSessionUser_(body);
   if (auth.err) return auth.err;
-  if (auth.user.role !== 'admin') return envelope_(false, 'FORBIDDEN');
-  var bid = body && body.bookingId ? String(body.bookingId) : '';
-  if (!bid) return envelope_(false, 'BAD_REQUEST');
-  var reason =
-    body && body.rejectReason != null ? String(body.rejectReason).trim().slice(0, 500) : '';
-  if (!reason) return envelope_(false, 'BAD_REQUEST');
-  var found = findBookingDataRow_(bid);
-  if (!found) return envelope_(false, 'NOT_FOUND');
-  var norm = normalizeBookingStatus_(found.row[11]);
-  if (norm !== 'pending') return envelope_(false, 'BAD_BOOKING_STATE');
-  var next = found.row.slice(0);
-  next[11] = 'rejected';
-  next[15] = '';
-  next[16] = reason;
-  found.sheet.getRange(found.rowIndex, 1, found.rowIndex, BOOKING_COL).setValues([next]);
-  return envelope_(true, null, { booking: bookingRowToClient_(next) });
+  
+  var role = getUserRole_(auth.user.email);
+  if (role !== 'admin') return envelope_(false, 'FORBIDDEN');
+  
+  var rowNum = body && body.rowNum ? Number(body.rowNum) : 0;
+  if (!rowNum || rowNum < 2) return envelope_(false, 'BAD_REQUEST');
+  
+  var sh = sheet_(SHEET_BOOKING_ROOM);
+  var data = sh.getDataRange().getValues();
+  
+  if (rowNum > data.length) return envelope_(false, 'NOT_FOUND');
+  
+  var bookingRow = data[rowNum - 1];
+  if (!bookingRow || !bookingRow[0]) return envelope_(false, 'NOT_FOUND');
+  
+  var status = String(bookingRow[10] || 'pending').trim().toLowerCase();
+  if (status !== 'pending') return envelope_(false, 'BAD_BOOKING_STATE');
+  
+  // Update status to rejected
+  var newStatus = 'rejected';
+  bookingRow[10] = newStatus;
+  sh.getRange(rowNum, 1, 1, bookingRow.length).setValues([bookingRow]);
+  
+  var updatedBooking = {
+    id: String(rowNum),
+    rowNum: rowNum,
+    timestamp: bookingRow[0] ? new Date(bookingRow[0]).toISOString() : '',
+    name: String(bookingRow[1] || ''),
+    room: String(bookingRow[2] || ''),
+    roomName: String(bookingRow[2] || ''),
+    date: String(bookingRow[3] || ''),
+    time_start: String(bookingRow[4] || ''),
+    time_end: String(bookingRow[5] || ''),
+    purpose: String(bookingRow[6] || ''),
+    num_attend: Number(bookingRow[7]) || 0,
+    equipments: String(bookingRow[8] || ''),
+    notes: String(bookingRow[9] || ''),
+    status: newStatus,
+  };
+  
+  return envelope_(true, null, { success: true, message: 'Booking rejected', booking: updatedBooking });
+}
+
+/** Get room availability for a specific date/room */
+function handleGetRoomAvailability_(body) {
+  var auth = requireSessionUser_(body);
+  if (auth.err) return auth.err;
+  
+  var roomId = String(body.roomId || '');
+  var date = String(body.date || '');
+  
+  if (!roomId || !ROOM_SHEET_MAP[roomId]) return envelope_(false, 'INVALID_ROOM');
+  if (!date) return envelope_(false, 'MISSING_DATE');
+  
+  var sh = sheet_(ROOM_SHEET_MAP[roomId]);
+  var data = sh.getDataRange().getValues();
+  var availability = [];
+  
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    availability.push({
+      time: String(row[0] || ''),
+      status: String(row[1] || 'available'),
+    });
+  }
+  
+  return envelope_(true, null, { availability: availability, roomId: roomId, date: date });
+}
+
+/** Update room availability status */
+function handleUpdateRoomAvailability_(body) {
+  var auth = requireSessionUser_(body);
+  if (auth.err) return auth.err;
+  
+  var role = getUserRole_(auth.user.email);
+  if (role !== 'admin') return envelope_(false, 'FORBIDDEN');
+  
+  var roomId = String(body.roomId || '');
+  var time = String(body.time || '');
+  var status = String(body.status || 'available');
+  
+  if (!roomId || !ROOM_SHEET_MAP[roomId]) return envelope_(false, 'INVALID_ROOM');
+  if (!time) return envelope_(false, 'MISSING_TIME');
+  
+  var sh = sheet_(ROOM_SHEET_MAP[roomId]);
+  var data = sh.getDataRange().getValues();
+  
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0]) === time) {
+      data[r][1] = status;
+      sh.getRange(r + 1, 1, 1, 2).setValues([data[r]]);
+      return envelope_(true, null, { success: true, message: 'Availability updated' });
+    }
+  }
+  
+  return envelope_(false, 'TIME_SLOT_NOT_FOUND');
 }

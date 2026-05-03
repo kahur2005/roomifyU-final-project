@@ -1,3 +1,4 @@
+import { rooms } from '../data/mockData';
 import type { Booking } from '../data/mockData';
 export type { Booking };
 import { authService } from './auth';
@@ -9,41 +10,60 @@ export function bookingsApiReady(): boolean {
 
 function coerceBooking(raw: Record<string, unknown>): Booking | null {
   if (!raw || typeof raw !== 'object') return null;
-  const id = String(raw.id ?? '');
+  const id = String(raw.id ?? raw.row ?? raw.rowNum ?? '');
   if (!id) return null;
-  const equip = raw.equipment;
-  const equipment = Array.isArray(equip) ? (equip as string[]) : [];
+
+  const rawRoom = String(raw.room ?? '').trim();
+  const rawRoomName = String(raw.roomName ?? rawRoom).trim();
+  const roomFromId = rooms.find((room) => room.id === rawRoom);
+  const roomFromName = rooms.find((room) => room.name === rawRoomName);
+  const roomObject = roomFromId || roomFromName;
+
+  const roomId = roomObject ? roomObject.id : rawRoom || rawRoomName;
+  const roomName = roomObject ? roomObject.name : rawRoomName || rawRoom;
+  const building = String(raw.building ?? roomObject?.building ?? '');
+  const userName = String(raw.name ?? raw.userName ?? '');
+
+  const equipments = raw.equipments
+    ? String(raw.equipments)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : Array.isArray(raw.equipment)
+    ? (raw.equipment as string[])
+    : [];
+
   const statusRaw = String(raw.status ?? '').toLowerCase();
   const status =
     statusRaw === 'confirmed' ||
+    statusRaw === 'approved' ||
     statusRaw === 'pending' ||
     statusRaw === 'rejected' ||
     statusRaw === 'cancelled'
-      ? statusRaw
+      ? statusRaw === 'approved'
+        ? 'confirmed'
+        : statusRaw
       : 'pending';
+
   return {
     id,
-    roomId: String(raw.roomId ?? ''),
+    roomId,
     userId: String(raw.userId ?? ''),
-    userName: String(raw.userName ?? ''),
-    roomName: String(raw.roomName ?? ''),
-    building: String(raw.building ?? ''),
+    userName,
+    roomName,
+    building,
     date: String(raw.date ?? ''),
-    startTime: String(raw.startTime ?? ''),
-    endTime: String(raw.endTime ?? ''),
+    startTime: String(raw.time_start ?? raw.startTime ?? ''),
+    endTime: String(raw.time_end ?? raw.endTime ?? ''),
     purpose: String(raw.purpose ?? ''),
-    attendees: Number(raw.attendees) || 0,
+    attendees: Number(raw.num_attend ?? raw.attendees) || 0,
     status,
-    equipment,
+    equipment: equipments,
     notes: raw.notes != null ? String(raw.notes) : undefined,
     isRecurring:
       typeof raw.isRecurring === 'boolean'
         ? raw.isRecurring
         : String(raw.isRecurring).toUpperCase() === 'TRUE',
-    graphEventId:
-      raw.graphEventId !== undefined && String(raw.graphEventId).trim()
-        ? String(raw.graphEventId)
-        : undefined,
     rejectReason:
       raw.rejectReason !== undefined && String(raw.rejectReason).trim()
         ? String(raw.rejectReason)
@@ -60,6 +80,38 @@ export async function bookingsListRemote(): Promise<Booking[]> {
   const list = out.bookings;
   if (!Array.isArray(list)) return [];
   return list.map((item) => coerceBooking(item as Record<string, unknown>)).filter(Boolean) as Booking[];
+}
+
+export type AvailabilitySlot = {
+  time: string;
+  status: 'available' | 'booked' | 'pending';
+};
+
+export async function getRoomAvailabilityRemote(
+  roomId: string,
+  date: string,
+): Promise<AvailabilitySlot[]> {
+  const token = authService.getSessionToken();
+  if (!token) return [];
+  const out = await gasPost({
+    action: 'getRoomAvailability',
+    token,
+    roomId,
+    date,
+  });
+  if (!out.ok) return [];
+  const availability = Array.isArray(out.availability) ? out.availability : [];
+  return availability
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const status = String((item as Record<string, unknown>).status ?? 'available').toLowerCase();
+      if (status !== 'available' && status !== 'booked' && status !== 'pending') return null;
+      return {
+        time: String((item as Record<string, unknown>).time ?? ''),
+        status: status as AvailabilitySlot['status'],
+      };
+    })
+    .filter(Boolean) as AvailabilitySlot[];
 }
 
 export type BookingCreatePayload = Pick<
@@ -84,15 +136,15 @@ export async function bookingCreateRemote(input: BookingCreatePayload): Promise<
   const out = await gasPost({
     action: 'bookingCreate',
     token,
-    roomId: input.roomId,
+    room: input.roomId,
     roomName: input.roomName,
     building: input.building,
     date: input.date,
-    startTime: input.startTime,
-    endTime: input.endTime,
+    time_start: input.startTime,
+    time_end: input.endTime,
     purpose: input.purpose,
-    attendees: input.attendees,
-    equipment: input.equipment,
+    num_attend: input.attendees,
+    equipments: input.equipment,
     notes: input.notes ?? '',
     isRecurring: input.isRecurring,
   });
@@ -101,7 +153,7 @@ export async function bookingCreateRemote(input: BookingCreatePayload): Promise<
 }
 
 export type BookingApproveOutcome =
-  | { success: true; booking: Booking; graphEventId: string }
+  | { success: true; booking: Booking }
   | { success: false; error?: string; message?: string };
 
 export async function bookingApproveRemote(bookingId: string): Promise<BookingApproveOutcome> {
@@ -110,7 +162,7 @@ export async function bookingApproveRemote(bookingId: string): Promise<BookingAp
   const body: Record<string, unknown> = {
     action: 'bookingApprove',
     token,
-    bookingId,
+    rowNum: Number(bookingId),
   };
   const out = await gasPost(body);
   if (!out.ok) {
@@ -121,8 +173,7 @@ export async function bookingApproveRemote(bookingId: string): Promise<BookingAp
   if (!out.booking) return { success: false, error: 'NO_BOOKING' };
   const booking = coerceBooking(out.booking as Record<string, unknown>);
   if (!booking) return { success: false, error: 'BAD_BOOKING_PAYLOAD' };
-  const gid = out.graphEventId != null ? String(out.graphEventId) : '';
-  return { success: true, booking, graphEventId: gid };
+  return { success: true, booking };
 }
 
 export async function bookingRejectRemote(bookingId: string, rejectReason: string): Promise<Booking | null> {
@@ -131,7 +182,7 @@ export async function bookingRejectRemote(bookingId: string, rejectReason: strin
   const out = await gasPost({
     action: 'bookingReject',
     token,
-    bookingId,
+    rowNum: Number(bookingId),
     rejectReason,
   });
   if (!out.ok || !out.booking) return null;

@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { rooms, generateTimeSlots } from '../data/mockData';
-import { bookingsApiReady, bookingCreateRemote } from '../utils/bookingsApi';
-import { calendarAvailabilityRemote, type AvailabilitySlot } from '../utils/calendarApi';
+import { bookingsApiReady, bookingCreateRemote, getRoomAvailabilityRemote, type AvailabilitySlot } from '../utils/bookingsApi';
 import { authService } from '../utils/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -15,6 +14,11 @@ import { Textarea } from '../components/ui/textarea';
 import { Checkbox } from '../components/ui/checkbox';
 import { Calendar } from '../components/ui/calendar';
 import { toast } from 'sonner';
+
+type RoomAvailabilitySlot = {
+  time: string;
+  status: 'available' | 'booked' | 'pending';
+};
 
 export function RoomDetailPage() {
   const { roomId } = useParams();
@@ -33,9 +37,8 @@ export function RoomDetailPage() {
   const [selectedEquipment, setSelectedEquipment] = useState<string[]>([]);
   const [isRecurring, setIsRecurring] = useState(false);
   const [notes, setNotes] = useState('');
-
-  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[] | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[] | null>(null);
 
   const formatLocalDate = (d: Date) => {
     const y = d.getFullYear();
@@ -45,7 +48,6 @@ export function RoomDetailPage() {
   };
 
   const timeSlotsMemo = useMemo(() => generateTimeSlots(), []);
-
   const sheetBackendReady =
     authService.gasBackendConfigured() && authService.isGasSession();
 
@@ -55,24 +57,17 @@ export function RoomDetailPage() {
       setAvailabilityLoading(false);
       return;
     }
-    const dateStr = formatLocalDate(selectedDate);
-    let cancelled = false;
+
     setAvailabilityLoading(true);
-    void calendarAvailabilityRemote(room.id, dateStr).then((res) => {
-      if (cancelled) return;
-      setAvailabilityLoading(false);
-      if (res?.graphReadError) {
-        toast.warning('Outlook calendar unavailable; using spreadsheet conflicts only.', {
-          description: res.graphReadError.slice(0, 180),
-        });
-      }
-      if (res?.slots?.length) setAvailabilitySlots(res.slots);
-      else setAvailabilitySlots(null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [room?.id, selectedDate, sheetBackendReady]);
+    void getRoomAvailabilityRemote(room.id, formatLocalDate(selectedDate))
+      .then((slots) => {
+        setAvailabilitySlots(slots);
+      })
+      .catch(() => {
+        setAvailabilitySlots(null);
+      })
+      .finally(() => setAvailabilityLoading(false));
+  }, [room, selectedDate, sheetBackendReady]);
 
   if (!room) {
     return (
@@ -85,7 +80,7 @@ export function RoomDetailPage() {
 
   const timeSlots = timeSlotsMemo;
 
-  const mockAvailability: AvailabilitySlot[] = timeSlots.map((time, index) => ({
+  const mockAvailability: RoomAvailabilitySlot[] = timeSlots.map((time, index) => ({
     time,
     status: (room.isMaintenance
       ? 'pending'
@@ -98,10 +93,7 @@ export function RoomDetailPage() {
       : 'available') as AvailabilitySlot['status'],
   }));
 
-  const availability: AvailabilitySlot[] =
-    sheetBackendReady && availabilitySlots && availabilitySlots.length > 0
-      ? availabilitySlots
-      : mockAvailability;
+  const availability: (RoomAvailabilitySlot | AvailabilitySlot)[] = availabilitySlots ?? mockAvailability;
 
   const handleEquipmentToggle = (equipment: string) => {
     setSelectedEquipment(prev =>
@@ -409,10 +401,10 @@ export function RoomDetailPage() {
                 {sheetBackendReady && (
                   <span className="block mt-1 text-xs">
                     {availabilityLoading
-                      ? 'Loading calendar…'
+                      ? 'Loading availability…'
                       : availabilitySlots && availabilitySlots.length > 0
-                      ? 'From Outlook (and your pending requests) via server'
-                      : 'Demo grid (sign in with Apps Script backend for live data)'}
+                      ? 'Live schedule from Apps Script backend'
+                      : 'No live availability loaded yet'}
                   </span>
                 )}
               </p>

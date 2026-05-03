@@ -37,7 +37,7 @@ export function MyBookingsPage() {
 
     void bookingsListRemote().then((rows) => {
       if (cancelled) return;
-      setBookingList(rows.filter((b) => b.userId === currentUser.id));
+      setBookingList(rows.filter((b) => b.userName === currentUser.name));
     });
 
     return () => {
@@ -85,11 +85,11 @@ export function MyBookingsPage() {
     toast.success(`Booking for ${booking.roomName} has been cancelled.`);
   };
 
-  const handleEdit = (booking: Booking) => {
+  const handleEdit = (_booking: Booking) => {
     toast.info('Edit booking functionality coming soon!');
   };
 
-  const handleView = (booking: Booking) => {
+  const handleView = (_booking: Booking) => {
     toast.info('View booking details coming soon!');
   };
 
