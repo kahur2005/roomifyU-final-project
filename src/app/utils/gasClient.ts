@@ -13,9 +13,11 @@ export async function gasPost(body: Record<string, unknown>): Promise<GasEnvelop
   }
   let res: Response;
   try {
+    // text/plain avoids CORS preflight (GAS doesn't handle OPTIONS).
+    // GAS reads e.postData.contents regardless of Content-Type.
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body),
     });
   } catch {

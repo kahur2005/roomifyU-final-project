@@ -409,7 +409,7 @@ function handleBookingCreate_(body) {
   var notes = String(body.notes || '');
   var status = 'pending';
   
-  sh.appendRow([timestamp, name, room, date, time_start, time_end, purpose, num_attend, equipments, notes, status]);
+  sh.appendRow([timestamp, name, room, date, time_start, time_end, purpose, num_attend, equipments, notes, status, '']);
   var rowNum = sh.getLastRow();
   return envelope_(true, null, {
     booking: {
