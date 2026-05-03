@@ -5,6 +5,7 @@ import { gasPost, type GasEnvelope } from './gasClient';
 interface UserCredentials {
   email: string;
   password: string;
+  role?: string;
 }
 
 const LEGACY_USER_KEY = 'roomify_current_user';
@@ -132,6 +133,7 @@ export const authService = {
       action: 'login',
       email: credentials.email,
       password: credentials.password,
+      role: credentials.role || 'student',
       client: typeof navigator !== 'undefined' ? { userAgent: navigator.userAgent } : {},
     })) as GasEnvelope & { token?: string; user?: User; expiresAt?: string };
 

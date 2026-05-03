@@ -34,7 +34,7 @@ var ROOM_SHEET_MAP = {
 // Headers for each table
 var HEADERS_USERS = ['timestamp', 'email', 'password', 'name'];
 var HEADERS_LOGIN = ['timestamp', 'email', 'status', 'role', 'name'];
-var HEADERS_BOOKING_ROOM = ['timestamp', 'name', 'room', 'date', 'time_start', 'time_end', 'purpose', 'num_attend', 'equipments', 'notes', 'status'];
+var HEADERS_BOOKING_ROOM = ['timestamp', 'name', 'room', 'date', 'time_start', 'time_end', 'purpose', 'num_attend', 'equipments', 'notes', 'status', 'reject_reason'];
 var HEADERS_APPROVED_BOOKING = ['timestamp', 'name', 'room', 'date', 'time_start', 'time_end'];
 var HEADERS_ROOM_AVAILABILITY = ['time', 'status'];
 
@@ -460,6 +460,7 @@ function handleBookingsList_(body) {
       equipments: String(row[8] || ''),
       notes: String(row[9] || ''),
       status: String(row[10] || 'pending'),
+      rejectReason: String(row[11] || ''),
     };
     
     if (role === 'admin') {
@@ -518,8 +519,9 @@ function handleBookingApprove_(body) {
     equipments: String(bookingRow[8] || ''),
     notes: String(bookingRow[9] || ''),
     status: newStatus,
+    rejectReason: '',
   };
-  
+
   return envelope_(true, null, { success: true, message: 'Booking approved', booking: updatedBooking });
 }
 
@@ -545,11 +547,13 @@ function handleBookingReject_(body) {
   var status = String(bookingRow[10] || 'pending').trim().toLowerCase();
   if (status !== 'pending') return envelope_(false, 'BAD_BOOKING_STATE');
   
-  // Update status to rejected
+  // Update status and store reject reason
   var newStatus = 'rejected';
+  var rejectReason = String(body.rejectReason || '');
   bookingRow[10] = newStatus;
+  bookingRow[11] = rejectReason;
   sh.getRange(rowNum, 1, 1, bookingRow.length).setValues([bookingRow]);
-  
+
   var updatedBooking = {
     id: String(rowNum),
     rowNum: rowNum,
@@ -565,8 +569,9 @@ function handleBookingReject_(body) {
     equipments: String(bookingRow[8] || ''),
     notes: String(bookingRow[9] || ''),
     status: newStatus,
+    rejectReason: rejectReason,
   };
-  
+
   return envelope_(true, null, { success: true, message: 'Booking rejected', booking: updatedBooking });
 }
 

@@ -38,8 +38,8 @@ export function DashboardPage() {
   }
 
   const userBookings = bookingList
-    .filter((b) => b.userId === currentUser.id)
-    .filter((b) => new Date(b.date) >= new Date())
+    .filter((b) => b.userName === currentUser.name)
+    .filter((b) => new Date(`${b.date}T12:00:00`) >= new Date())
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   const stats = [

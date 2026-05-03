@@ -151,7 +151,7 @@ export function ApprovalsPage() {
   };
 
   if (!currentUser || currentUser.role !== 'admin') {
-    navigate('/dashboard', { replace: true });
+    navigate('/app/dashboard', { replace: true });
     return null;
   }
 

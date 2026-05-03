@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { GraduationCap } from 'lucide-react';
 import { toast } from 'sonner';
 import { authService } from '../utils/auth';
@@ -14,6 +15,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('arry@university.edu');
   const [password, setPassword] = useState('12345678');
+  const [role, setRole] = useState<'student' | 'lecturer' | 'admin'>('admin');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,7 +33,7 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
-      const user = await authService.login({ email, password });
+      const user = await authService.login({ email, password, role });
 
       if (user) {
         toast.success(`Welcome ${user.name}!`);
@@ -51,7 +53,7 @@ export function LoginPage() {
   };
 
   const handleSSOLogin = async () => {
-    const user = await authService.login({ email: 'arry@university.edu', password: '12345678' });
+    const user = await authService.login({ email: 'arry@university.edu', password: '12345678', role: 'admin' });
     if (!user) {
       toast.error('SSO login failed');
       return;
@@ -60,14 +62,14 @@ export function LoginPage() {
     redirectToRoleDashboard(user.role);
   };
 
-  const handleDemoLogin = async (role: 'admin' | 'student' | 'lecturer') => {
+  const handleDemoLogin = async (demoRole: 'admin' | 'student' | 'lecturer') => {
     const credentialsByRole = {
-      admin: { email: 'arry@university.edu', password: '12345678' },
-      student: { email: 'jesse@university.edu', password: '12345678' },
-      lecturer: { email: 'panji@university.edu', password: '12345678' },
+      admin: { email: 'arry@university.edu', password: '12345678', role: 'admin' as const },
+      student: { email: 'jesse@university.edu', password: '12345678', role: 'student' as const },
+      lecturer: { email: 'panji@university.edu', password: '12345678', role: 'lecturer' as const },
     };
 
-    const user = await authService.login(credentialsByRole[role]);
+    const user = await authService.login(credentialsByRole[demoRole]);
     if (!user) {
       toast.error('Demo login failed');
       return;
@@ -172,6 +174,19 @@ export function LoginPage() {
                     required
                     disabled={isLoading}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role</Label>
+                  <Select value={role} onValueChange={(v) => setRole(v as typeof role)} disabled={isLoading}>
+                    <SelectTrigger id="role" className="h-11 border-border bg-background shadow-sm">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="student">Student</SelectItem>
+                      <SelectItem value="lecturer">Lecturer</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Signing in...' : 'Sign In'}

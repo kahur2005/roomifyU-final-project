@@ -83,10 +83,10 @@ export const lecturerUser: User = {
 // All available demo users
 export const demoUsers: User[] = [currentUser, studentUser, lecturerUser];
 
-// Sample rooms
+// Sample rooms — IDs match the GAS backend room sheet names for availability lookups
 export const rooms: Room[] = [
   {
-    id: "r1",
+    id: "19f20",
     name: "Microteaching Lab 19F-20",
     building: "Lavenue Building, 19th Floor",
     floor: 19,
@@ -99,7 +99,7 @@ export const rooms: Room[] = [
     isMaintenance: false,
   },
   {
-    id: "r2",
+    id: "19f01",
     name: "Room 19F-01",
     building: "Lavenue Building, 19th Floor",
     floor: 19,
@@ -118,7 +118,7 @@ export const rooms: Room[] = [
     isMaintenance: false,
   },
   {
-    id: "r3",
+    id: "19f02",
     name: "Room 19F-02",
     building: "Lavenue Building, 19th Floor",
     floor: 19,
@@ -137,7 +137,7 @@ export const rooms: Room[] = [
     isMaintenance: false,
   },
   {
-    id: "r4",
+    id: "19f03",
     name: "Room 19F-03",
     building: "Lavenue Building, 19th Floor",
     floor: 19,
@@ -156,7 +156,7 @@ export const rooms: Room[] = [
     isMaintenance: false,
   },
   {
-    id: "r5",
+    id: "19f04",
     name: "Room 19F-04",
     building: "Lavenue Building, 19th Floor",
     floor: 19,
@@ -188,7 +188,7 @@ export const rooms: Room[] = [
     isMaintenance: false,
   },
   {
-    id: "r7",
+    id: "manuf_lab",
     name: "Manufacturing Lab",
     building: "LG Lab Building",
     floor: -1,
@@ -232,7 +232,7 @@ export const rooms: Room[] = [
 export const bookings: Booking[] = [
   {
     id: "b1",
-    roomId: "r1",
+    roomId: "19f20",
     userId: "1",
     userName: "Sarah Johnson",
     roomName: "Microteaching Lab 19F-20",
@@ -249,7 +249,7 @@ export const bookings: Booking[] = [
   },
   {
     id: "b2",
-    roomId: "r2",
+    roomId: "19f01",
     userId: "1",
     userName: "Sarah Johnson",
     roomName: "Room 19F-01",
@@ -266,7 +266,7 @@ export const bookings: Booking[] = [
   },
   {
     id: "b3",
-    roomId: "r4",
+    roomId: "19f03",
     userId: "1",
     userName: "Sarah Johnson",
     roomName: "Room 19F-03",
@@ -283,7 +283,7 @@ export const bookings: Booking[] = [
   },
   {
     id: "b4",
-    roomId: "r5",
+    roomId: "19f04",
     userId: "2",
     userName: "Prof. Michael Chen",
     roomName: "Room 19F-04",
@@ -300,7 +300,7 @@ export const bookings: Booking[] = [
   },
   {
     id: "b5",
-    roomId: "r3",
+    roomId: "19f02",
     userId: "3",
     userName: "Dr. Emily White",
     roomName: "Room 19F-02",

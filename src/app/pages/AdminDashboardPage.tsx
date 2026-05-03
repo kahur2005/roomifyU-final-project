@@ -22,7 +22,7 @@ export function AdminDashboardPage() {
 
     let cancelled = false;
     void bookingsListRemote().then((rows) => {
-      if (!cancelled) return;
+      if (cancelled) return;
       setBookingList(rows);
     });
 
@@ -32,7 +32,7 @@ export function AdminDashboardPage() {
   }, [remoteReady]);
 
   if (!currentUser || currentUser.role !== 'admin') {
-    navigate('/dashboard', { replace: true });
+    navigate('/app/dashboard', { replace: true });
     return null;
   }
 
