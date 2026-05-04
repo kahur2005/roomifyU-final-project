@@ -4,6 +4,7 @@ import { BookingCard } from '../components/BookingCard';
 import type { Booking } from '../utils/bookingsApi';
 import { authService } from '../utils/auth';
 import { bookingsApiReady, bookingsListRemote } from '../utils/bookingsApi';
+import { addNotification, updateStatusCache } from '../utils/notificationsStore';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -69,6 +70,36 @@ export function MyBookingsPage() {
           return stored === myName || stored === myEmail;
         });
 
+        // Detect status changes since the last fetch and fire notifications
+        const prevStatuses = updateStatusCache(userId, mine);
+        const isFirstLoad = Object.keys(prevStatuses).length === 0;
+        if (!isFirstLoad) {
+          mine.forEach((b) => {
+            const prev = prevStatuses[b.id];
+            if (prev === 'pending' && b.status === 'confirmed') {
+              addNotification(userId, {
+                type: 'approval',
+                title: 'Booking Approved!',
+                message: `Your booking for ${b.roomName} on ${new Date(`${b.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} (${b.startTime}–${b.endTime}) has been approved.`,
+                link: '/app/bookings',
+              });
+            } else if (prev === 'pending' && b.status === 'rejected') {
+              addNotification(userId, {
+                type: 'cancellation',
+                title: 'Booking Rejected',
+                message: `Your booking for ${b.roomName} on ${new Date(`${b.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} was not approved.${b.rejectReason ? ` Reason: ${b.rejectReason}` : ''}`,
+                link: '/app/bookings',
+              });
+            }
+          });
+        }
+
+        // Also detect newly-seen confirmed/rejected bookings not in the cache
+        // (for bookings that were already approved before the user first loaded this page)
+        if (isFirstLoad) {
+          updateStatusCache(userId, mine);
+        }
+
         setBookings(mine);
         setIsLoading(false);
       })
@@ -86,10 +117,13 @@ export function MyBookingsPage() {
   if (!currentUser) return null;
 
   // ── Sorting / bucketing ───────────────────────────────────────────────────
-  const isUpcoming = (b: Booking) =>
-    new Date(`${b.date}T12:00:00`) >= new Date() &&
-    b.status !== 'cancelled' &&
-    b.status !== 'rejected';
+  const isUpcoming = (b: Booking) => {
+    if (b.status === 'cancelled' || b.status === 'rejected') return false;
+    const endTs = b.endTime
+      ? new Date(`${b.date}T${b.endTime}:00`)
+      : new Date(`${b.date}T23:59:59`);
+    return endTs >= new Date();
+  };
 
   const upcomingBookings = [...bookings]
     .filter(isUpcoming)

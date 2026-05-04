@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Separator } from '../components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { GraduationCap } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,9 +12,9 @@ import { ThemeToggle } from '../components/ThemeToggle';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('arry@university.edu');
-  const [password, setPassword] = useState('12345678');
-  const [role, setRole] = useState<'student' | 'lecturer' | 'admin'>('admin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'student' | 'lecturer' | 'admin'>('student');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,39 +43,12 @@ export function LoginPage() {
           description: 'Invalid email or password',
         });
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred during login');
       toast.error('Login error');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleSSOLogin = async () => {
-    const user = await authService.login({ email: 'arry@university.edu', password: '12345678', role: 'admin' });
-    if (!user) {
-      toast.error('SSO login failed');
-      return;
-    }
-    toast.success(`Welcome ${user.name}!`);
-    redirectToRoleDashboard(user.role);
-  };
-
-  const handleDemoLogin = async (demoRole: 'admin' | 'student' | 'lecturer') => {
-    const credentialsByRole = {
-      admin: { email: 'arry@university.edu', password: '12345678', role: 'admin' as const },
-      student: { email: 'jesse@university.edu', password: '12345678', role: 'student' as const },
-      lecturer: { email: 'panji@university.edu', password: '12345678', role: 'lecturer' as const },
-    };
-
-    const user = await authService.login(credentialsByRole[demoRole]);
-    if (!user) {
-      toast.error('Demo login failed');
-      return;
-    }
-
-    toast.success(`Welcome ${user.name}!`);
-    redirectToRoleDashboard(user.role);
   };
 
   return (
@@ -91,7 +63,7 @@ export function LoginPage() {
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-4">
               <GraduationCap className="h-10 w-10 text-primary" />
             </div>
-            <h1 className="text-4xl font-bold text-primary mb-2">CampusSpace</h1>
+            <h1 className="text-4xl font-bold text-primary mb-2">RoomifyU</h1>
             <p className="text-xl text-muted-foreground">Sampoerna University Room Booking System</p>
           </div>
           <img
@@ -111,28 +83,6 @@ export function LoginPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* SSO Login */}
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleSSOLogin}
-              >
-                <GraduationCap className="mr-2 h-5 w-5" />
-                Sign in with Sampoerna University SSO
-              </Button>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <Separator />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">
-                    Or continue with email
-                  </span>
-                </div>
-              </div>
-
-              {/* Email Login Form */}
               <form onSubmit={handleLogin} className="space-y-4 rounded-lg border bg-muted/30 p-4">
                 {error && (
                   <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
@@ -202,46 +152,7 @@ export function LoginPage() {
                     Sign up
                   </Button>
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {authService.gasBackendConfigured()
-                    ? 'Credentials are validated by the CampusSpace backend.'
-                    : 'Demo mode: arry@university.edu / 12345678 (same password for all roles)'}
-                </p>
               </form>
-
-              {/* Quick Demo Login Buttons */}
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground text-center">Quick demo login:</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('admin')}
-                    disabled={isLoading}
-                    className="text-xs"
-                  >
-                    Admin
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('student')}
-                    disabled={isLoading}
-                    className="text-xs"
-                  >
-                    Student
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('lecturer')}
-                    disabled={isLoading}
-                    className="text-xs"
-                  >
-                    Lecturer
-                  </Button>
-                </div>
-              </div>
 
               <p className="text-center text-sm text-muted-foreground">
                 Need help?{' '}

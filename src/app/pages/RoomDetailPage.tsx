@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router';
 import { rooms, generateTimeSlots } from '../data/mockData';
 import { bookingsApiReady, bookingCreateRemote, getRoomAvailabilityRemote, type AvailabilitySlot } from '../utils/bookingsApi';
 import { authService } from '../utils/auth';
+import { addNotification } from '../utils/notificationsStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { StatusBadge } from '../components/StatusBadge';
@@ -106,6 +107,7 @@ export function RoomDetailPage() {
     const n = Number(attendees);
     const attendeesNum = Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
 
+    const user = authService.getCurrentUser();
     if (bookingsApiReady()) {
       const created = await bookingCreateRemote({
         roomId: room.id,
@@ -127,6 +129,15 @@ export function RoomDetailPage() {
       toast.success('Booking request submitted successfully!');
     } else {
       toast.success('Booking request submitted successfully!');
+    }
+
+    if (user) {
+      addNotification(user.id, {
+        type: 'booking',
+        title: 'Booking Pending',
+        message: `Your booking for ${room.name} on ${new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} (${selectedTime.start}–${selectedTime.end}) is now pending approval.`,
+        link: '/app/bookings',
+      });
     }
 
     setShowBookingModal(false);

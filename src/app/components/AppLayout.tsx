@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { Notification } from '../data/mockData';
 import { authService } from '../utils/auth';
+import { getNotifications, markNotificationRead } from '../utils/notificationsStore';
 import { useEffect } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 import { MobileNav } from './MobileNav';
@@ -47,8 +48,16 @@ export function AppLayout() {
   useEffect(() => {
     if (!currentUser) {
       navigate('/login', { replace: true });
+      return;
     }
-  }, [currentUser, navigate]);
+    // Load persisted notifications for this user
+    setNotificationItems(getNotifications(currentUser.id));
+
+    // Listen for real-time notifications dispatched from anywhere in the app
+    const handler = () => setNotificationItems(getNotifications(currentUser.id));
+    window.addEventListener('roomify:notification', handler);
+    return () => window.removeEventListener('roomify:notification', handler);
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getNotificationLink = (notification: Notification) => {
     if (notification.link) {
@@ -69,6 +78,7 @@ export function AppLayout() {
 
   const handleNotificationClick = (notification: Notification) => {
     setNotificationOpen(false);
+    if (currentUser) markNotificationRead(currentUser.id, notification.id);
     setNotificationItems((prev) =>
       prev.map((item) =>
         item.id === notification.id ? { ...item, read: true } : item
@@ -179,7 +189,7 @@ export function AppLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
                 <div className="flex h-16 items-center px-6 border-b">
-                  <h1 className="text-xl font-bold text-primary">CampusSpace</h1>
+                  <h1 className="text-xl font-bold text-primary">RoomifyU</h1>
                 </div>
                 <div className="p-4">
                   <NavLinks onItemClick={() => setMobileMenuOpen(false)} />
@@ -189,7 +199,7 @@ export function AppLayout() {
 
             {/* Logo */}
             <h1 className="text-xl font-bold text-primary cursor-pointer" onClick={() => navigate('/app/dashboard')}>
-              CampusSpace
+              RoomifyU
             </h1>
           </div>
 

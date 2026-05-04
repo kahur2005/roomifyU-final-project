@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(npx vite *)",
-      "Bash(dir node_modules)"
+      "Bash(dir node_modules)",
+      "Bash(Get-ChildItem -Path \"d:\\\\GITHUB\\\\final hci\\\\roomifyU-final-project\\\\src\\\\app\" -Recurse -File)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

@@ -32,9 +32,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
 } from '../components/ui/sheet';
 import {
   Dialog,
@@ -43,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import { Search, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Eye, MapPin, User, CalendarDays, Clock, FileText, Users, Wrench, StickyNote, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function ApprovalsPage() {
@@ -285,94 +282,150 @@ export function ApprovalsPage() {
         open={!!selectedBooking && !showRejectDialog}
         onOpenChange={(open) => !open && setSelectedBooking(null)}
       >
-        <SheetContent className="w-full md:max-w-lg overflow-y-auto">
+        <SheetContent className="w-full md:max-w-lg overflow-y-auto p-0">
           {selectedBooking && (
             <>
-              <SheetHeader>
-                <SheetTitle>Booking Details</SheetTitle>
-                <SheetDescription>
-                  Review the booking information and take action
-                </SheetDescription>
-              </SheetHeader>
-              <div className="mt-6 space-y-6">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Status:</span>
+              {/* Coloured header band */}
+              <div className="px-6 pt-8 pb-6 bg-muted/40 border-b">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h2 className="text-xl font-bold leading-tight">{selectedBooking.roomName}</h2>
                   <StatusBadge status={selectedBooking.status} />
                 </div>
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span>{selectedBooking.building || '—'}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Booking #{selectedBooking.id}</p>
+              </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <Label>Room</Label>
-                    <p className="text-lg font-medium">{selectedBooking.roomName}</p>
-                    <p className="text-sm text-muted-foreground">{selectedBooking.building}</p>
+              <div className="px-6 py-5 space-y-5">
+
+                {/* Requester */}
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <User className="h-4 w-4 text-primary" />
                   </div>
-
                   <div>
-                    <Label>Requested By</Label>
-                    <p className="font-medium">{selectedBooking.userName}</p>
+                    <p className="text-xs text-muted-foreground">Requested by</p>
+                    <p className="font-semibold">{selectedBooking.userName}</p>
                   </div>
+                </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="border-t" />
+
+                {/* Date & Time */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <CalendarDays className="h-4 w-4 text-primary" />
+                    </div>
                     <div>
-                      <Label>Date</Label>
-                      <p className="font-medium">
+                      <p className="text-xs text-muted-foreground">Date</p>
+                      <p className="font-semibold text-sm">
                         {new Date(`${selectedBooking.date}T12:00:00`).toLocaleDateString('en-GB', {
-                          weekday: 'long',
                           day: 'numeric',
-                          month: 'long',
+                          month: 'short',
                           year: 'numeric',
                         })}
                       </p>
-                    </div>
-                    <div>
-                      <Label>Time</Label>
-                      <p className="font-medium">
-                        {selectedBooking.startTime} - {selectedBooking.endTime}
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(`${selectedBooking.date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long' })}
                       </p>
                     </div>
                   </div>
-
-                  <div>
-                    <Label>Purpose</Label>
-                    <p className="font-medium">{selectedBooking.purpose}</p>
-                  </div>
-
-                  <div>
-                    <Label>Number of Attendees</Label>
-                    <p className="font-medium">{selectedBooking.attendees}</p>
-                  </div>
-
-                  {selectedBooking.equipment.length > 0 && (
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Clock className="h-4 w-4 text-primary" />
+                    </div>
                     <div>
-                      <Label>Equipment Required</Label>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedBooking.equipment.map((eq) => (
-                          <span key={eq} className="px-2 py-1 bg-muted rounded-md text-sm">
-                            {eq}
-                          </span>
-                        ))}
-                      </div>
+                      <p className="text-xs text-muted-foreground">Time</p>
+                      <p className="font-semibold text-sm">{selectedBooking.startTime}</p>
+                      <p className="text-xs text-muted-foreground">until {selectedBooking.endTime}</p>
                     </div>
-                  )}
-
-                  {selectedBooking.notes && (
-                    <div>
-                      <Label>Additional Notes</Label>
-                      <p className="text-sm text-muted-foreground">{selectedBooking.notes}</p>
-                    </div>
-                  )}
-
-                  {selectedBooking.isRecurring && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <p className="text-sm font-medium text-amber-700">
-                        This is a recurring booking request
-                      </p>
-                    </div>
-                  )}
+                  </div>
                 </div>
 
+                <div className="border-t" />
+
+                {/* Purpose & Attendees */}
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Purpose</p>
+                      <p className="font-semibold">{selectedBooking.purpose}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Users className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Attendees</p>
+                      <p className="font-semibold">{selectedBooking.attendees} {selectedBooking.attendees === 1 ? 'person' : 'people'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Equipment */}
+                {selectedBooking.equipment.length > 0 && (
+                  <>
+                    <div className="border-t" />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                        <Wrench className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-muted-foreground mb-2">Equipment needed</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedBooking.equipment.map((eq) => (
+                            <span key={eq} className="px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-medium">
+                              {eq}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Notes */}
+                {selectedBooking.notes && (
+                  <>
+                    <div className="border-t" />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <StickyNote className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Additional notes</p>
+                        <p className="text-sm leading-relaxed">{selectedBooking.notes}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Recurring banner */}
+                {selectedBooking.isRecurring && (
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+                    <RefreshCw className="h-4 w-4 text-amber-600 shrink-0" />
+                    <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Recurring booking request</p>
+                  </div>
+                )}
+
+                {/* Reject reason (if already rejected) */}
+                {selectedBooking.status === 'rejected' && selectedBooking.rejectReason && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                    <p className="text-xs font-semibold text-destructive mb-1">Rejection reason</p>
+                    <p className="text-sm text-destructive/80">{selectedBooking.rejectReason}</p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
                 {selectedBooking.status === 'pending' && (
-                  <div className="flex gap-2 pt-4 border-t">
+                  <div className="flex gap-2 pt-2 border-t">
                     <Button className="flex-1" onClick={() => void handleApprove(selectedBooking)}>
                       <CheckCircle className="h-4 w-4 mr-2" />
                       Approve
@@ -380,9 +433,7 @@ export function ApprovalsPage() {
                     <Button
                       variant="destructive"
                       className="flex-1"
-                      onClick={() => {
-                        setShowRejectDialog(true);
-                      }}
+                      onClick={() => setShowRejectDialog(true)}
                     >
                       <XCircle className="h-4 w-4 mr-2" />
                       Reject
