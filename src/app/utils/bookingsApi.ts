@@ -133,9 +133,12 @@ export type BookingCreatePayload = Pick<
 export async function bookingCreateRemote(input: BookingCreatePayload): Promise<Booking | null> {
   const token = authService.getSessionToken();
   if (!token) return null;
+  // Pass name explicitly so the stored value always matches currentUser.name.
+  const currentUser = authService.getCurrentUser();
   const out = await gasPost({
     action: 'bookingCreate',
     token,
+    name: currentUser?.name ?? '',
     room: input.roomId,
     roomName: input.roomName,
     building: input.building,
