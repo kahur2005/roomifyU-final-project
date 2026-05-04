@@ -8,6 +8,33 @@ export function bookingsApiReady(): boolean {
   return authService.gasBackendConfigured() && authService.isGasSession();
 }
 
+// Google Sheets stores times as fractions of Dec 30, 1899 — GAS returns those
+// as full date-time strings. These helpers normalise back to plain HH:mm / YYYY-MM-DD.
+function normalizeTimeStr(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5);
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  return s;
+}
+
+function normalizeDateStr(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return s;
+}
+
 function coerceBooking(raw: Record<string, unknown>): Booking | null {
   if (!raw || typeof raw !== 'object') return null;
   const id = String(raw.id ?? raw.row ?? raw.rowNum ?? '');
@@ -52,9 +79,9 @@ function coerceBooking(raw: Record<string, unknown>): Booking | null {
     userName,
     roomName,
     building,
-    date: String(raw.date ?? ''),
-    startTime: String(raw.time_start ?? raw.startTime ?? ''),
-    endTime: String(raw.time_end ?? raw.endTime ?? ''),
+    date: normalizeDateStr(raw.date),
+    startTime: normalizeTimeStr(raw.time_start ?? raw.startTime),
+    endTime: normalizeTimeStr(raw.time_end ?? raw.endTime),
     purpose: String(raw.purpose ?? ''),
     attendees: Number(raw.num_attend ?? raw.attendees) || 0,
     status,

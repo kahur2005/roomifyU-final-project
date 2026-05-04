@@ -228,9 +228,9 @@ export function ApprovalsPage() {
                       </TableCell>
                       <TableCell>{booking.userName}</TableCell>
                       <TableCell>
-                        {new Date(`${booking.date}T12:00:00`).toLocaleDateString('en-US', {
-                          month: 'short',
+                        {new Date(`${booking.date}T12:00:00`).toLocaleDateString('en-GB', {
                           day: 'numeric',
+                          month: 'short',
                           year: 'numeric',
                         })}
                       </TableCell>
@@ -316,10 +316,10 @@ export function ApprovalsPage() {
                     <div>
                       <Label>Date</Label>
                       <p className="font-medium">
-                        {new Date(`${selectedBooking.date}T12:00:00`).toLocaleDateString('en-US', {
+                        {new Date(`${selectedBooking.date}T12:00:00`).toLocaleDateString('en-GB', {
                           weekday: 'long',
-                          month: 'long',
                           day: 'numeric',
+                          month: 'long',
                           year: 'numeric',
                         })}
                       </p>

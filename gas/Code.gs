@@ -448,6 +448,23 @@ function handleBookingReject_(body) {
   return envelope_(true, null, {success: true, message: 'Booking rejected', booking: rowToBooking_(row, rowNum)});
 }
 
+// Google Sheets returns Date objects for date/time cells; format them to plain strings.
+function formatCellDate_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return String(val);
+}
+
+function formatCellTime_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'HH:mm');
+  }
+  return String(val);
+}
+
 function rowToBooking_(row, rowNum) {
   return {
     id:           String(rowNum),
@@ -456,9 +473,9 @@ function rowToBooking_(row, rowNum) {
     name:         String(row[1]  || ''),
     room:         String(row[2]  || ''),
     roomName:     String(row[2]  || ''),
-    date:         String(row[3]  || ''),
-    time_start:   String(row[4]  || ''),
-    time_end:     String(row[5]  || ''),
+    date:         formatCellDate_(row[3]),
+    time_start:   formatCellTime_(row[4]),
+    time_end:     formatCellTime_(row[5]),
     purpose:      String(row[6]  || ''),
     num_attend:   Number(row[7]) || 0,
     equipments:   String(row[8]  || ''),
