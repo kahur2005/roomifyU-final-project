@@ -189,7 +189,7 @@ export function AppLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
                 <div className="flex h-16 items-center px-6 border-b">
-                  <h1 className="text-xl font-bold text-primary">RoomifyU</h1>
+                  <h1 className="text-xl font-bold text-primary">CampusSpace</h1>
                 </div>
                 <div className="p-4">
                   <NavLinks onItemClick={() => setMobileMenuOpen(false)} />
@@ -199,7 +199,7 @@ export function AppLayout() {
 
             {/* Logo */}
             <h1 className="text-xl font-bold text-primary cursor-pointer" onClick={() => navigate('/app/dashboard')}>
-              RoomifyU
+              CampusSpace
             </h1>
           </div>
 
