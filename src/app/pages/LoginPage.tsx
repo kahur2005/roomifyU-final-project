@@ -63,7 +63,7 @@ export function LoginPage() {
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-4">
               <GraduationCap className="h-10 w-10 text-primary" />
             </div>
-            <h1 className="text-4xl font-bold text-primary mb-2">CampusSpace</h1>
+            <h1 className="text-4xl font-bold text-primary mb-2">RoomifyU</h1>
             <p className="text-xl text-muted-foreground">Sampoerna University Room Booking System</p>
           </div>
           <img
